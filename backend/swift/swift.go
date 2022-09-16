@@ -221,6 +221,22 @@ provider.`,
 				Value: "pca",
 				Help:  "OVH Public Cloud Archive",
 			}},
+		}, {
+			Name: "container_prefix",
+			Help: `The prefix by which containers are going to be filtered
+
+Limit the list of containers having the given prefix.`,
+			Default:  "",
+			Advanced: true,
+			Examples: []fs.OptionExample{{
+				Value: "",
+				Help:  "Default",
+			}, {
+				Value: "foo",
+				Help: `Only containers prefixed with 'foo',
+I.e. foo, foobar. But not barfoo`,
+			},
+			},
 		}}, SharedOptions...),
 	})
 }
@@ -692,8 +708,12 @@ func (f *Fs) listDir(ctx context.Context, container, directory, prefix string, a
 // listContainers lists the containers
 func (f *Fs) listContainers(ctx context.Context) (entries fs.DirEntries, err error) {
 	var containers []swift.Container
+	var containerOpts swift.ContainersOpts
+	containerOpts.Limit = listChunks
+	containerOpts.Prefix = f.opt.ContainerPrefix
+
 	err = f.pacer.Call(func() (bool, error) {
-		containers, err = f.c.ContainersAll(ctx, nil)
+		containers, err = f.c.ContainersAll(ctx, &containerOpts)
 		return shouldRetry(ctx, err)
 	})
 	if err != nil {
