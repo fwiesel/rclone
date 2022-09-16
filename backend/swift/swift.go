@@ -815,18 +815,16 @@ func (f *Fs) About(ctx context.Context) (usage *fs.Usage, err error) {
 		total = container.Bytes
 		objects = container.Count
 	} else {
-		var containers []swift.Container
+		var info swift.Account
 		err = f.pacer.Call(func() (bool, error) {
-			containers, err = f.c.ContainersAll(ctx, nil)
+			info, _, err = f.c.Account(ctx)
 			return shouldRetry(ctx, err)
 		})
 		if err != nil {
-			return nil, fmt.Errorf("container listing failed: %w", err)
+			return nil, fmt.Errorf("getting account info failed: %w", err)
 		}
-		for _, c := range containers {
-			total += c.Bytes
-			objects += c.Count
-		}
+		total = info.BytesUsed
+		objects = info.Objects
 	}
 	usage = &fs.Usage{
 		Used:    fs.NewUsageValue(total),   // bytes in use
