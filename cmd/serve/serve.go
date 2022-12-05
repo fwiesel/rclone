@@ -9,6 +9,7 @@ import (
 	"github.com/rclone/rclone/cmd/serve/docker"
 	"github.com/rclone/rclone/cmd/serve/ftp"
 	"github.com/rclone/rclone/cmd/serve/http"
+	"github.com/rclone/rclone/cmd/serve/nfsv3"
 	"github.com/rclone/rclone/cmd/serve/restic"
 	"github.com/rclone/rclone/cmd/serve/sftp"
 	"github.com/rclone/rclone/cmd/serve/webdav"
@@ -34,6 +35,9 @@ func init() {
 	}
 	if docker.Command != nil {
 		Command.AddCommand(docker.Command)
+	}
+	if nfsv3.Command != nil {
+		Command.AddCommand(nfsv3.Command)
 	}
 	cmd.Root.AddCommand(Command)
 }
