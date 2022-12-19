@@ -265,6 +265,7 @@ type Options struct {
 	ChunkSize                   fs.SizeSuffix        `config:"chunk_size"`
 	NoChunk                     bool                 `config:"no_chunk"`
 	NoLargeObjects              bool                 `config:"no_large_objects"`
+	ContainerPrefix             string               `config:"container_prefix"`
 	Enc                         encoder.MultiEncoder `config:"encoding"`
 }
 
