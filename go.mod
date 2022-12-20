@@ -26,8 +26,10 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.1
 	github.com/gdamore/tcell/v2 v2.5.3
 	github.com/go-chi/chi/v5 v5.0.7
+	github.com/go-git/go-billy/v5 v5.3.1
 	github.com/google/uuid v1.3.0
 	github.com/hanwen/go-fuse/v2 v2.1.0
+	github.com/hashicorp/golang-lru v0.5.1
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/iguanesolutions/go-systemd/v5 v5.1.0
 	github.com/jcmturner/gokrb5/v8 v8.4.3
@@ -55,6 +57,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.8.1
 	github.com/t3rm1n4l/go-mega v0.0.0-20220725095014-c4e0c2b5debf
+	github.com/willscott/go-nfs v0.0.0-20221212003002-ccfcb722abbf
 	github.com/winfsp/cgofuse v1.5.1-0.20221118130120-84c0898ad2e0
 	github.com/xanzy/ssh-agent v0.3.3
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
@@ -116,6 +119,7 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
+	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sony/gobreaker v0.5.0 // indirect
@@ -123,6 +127,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.10 // indirect
 	github.com/tklauser/numcpus v0.4.0 // indirect
 	github.com/vivint/infectious v0.0.0-20200605153912-25a574ae18a3 // indirect
+	github.com/willscott/go-nfs-client v0.0.0-20200605172546-271fa9065b33 // indirect
 	github.com/yusufpapurcu/wmi v1.2.2 // indirect
 	github.com/zeebo/errs v1.3.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
@@ -146,3 +151,5 @@ require (
 	golang.org/x/mobile v0.0.0-20221110043201-43a038452099
 	golang.org/x/term v0.3.0
 )
+
+replace github.com/willscott/go-nfs => /home/d063079/repos/go-nfs

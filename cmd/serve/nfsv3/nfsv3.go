@@ -2,19 +2,24 @@
 package nfsv3
 
 import (
+	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
+	iofs "io/fs"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
 
-	"github.com/go-git/go-billy/v5"
+	billy "github.com/go-git/go-billy/v5"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/rclone/rclone/cmd"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/vfs"
 	"github.com/rclone/rclone/vfs/vfsflags"
 	"github.com/spf13/cobra"
 	nfs "github.com/willscott/go-nfs"
-	nfshelper "github.com/willscott/go-nfs/helpers"
 )
 
 const separator = filepath.Separator
@@ -38,32 +43,24 @@ var Command = &cobra.Command{
 	Use:   "nfsv3 remote:path",
 	Short: `Serve the remote over NFS v3.`,
 	Long: `Run a basic nfs v3 server to serve a remote over NFS version 3 (TCP).
-You can use the filter flags (e.g. ` + "`--include`, `--exclude`" + `) to control what
-is served.
-
-The server will log errors.  Use ` + "`-v`" + ` to see access logs.
-
-` + "`--bwlimit`" + ` will be respected for file transfers.  Use ` + "`--stats`" + ` to
-control the stats printing.
 ` + vfs.Help,
 	Run: func(command *cobra.Command, args []string) {
 		cmd.CheckArgs(1, 1, command, args)
 		f := cmd.NewFsSrc(args)
 		cmd.Run(false, true, command, func() error {
-			listener, err := net.Listen("tcp", ":2049")
+			listener, err := net.Listen("tcp4", ":2049")
 			if err != nil {
 				return err
 			}
 
 			s := newServer(f)
-			return nfs.Serve(listener, s.handler)
+			return nfs.Serve(listener, s)
 		})
 	},
 }
 
 type billyFs struct {
-	// billy.Basic
-	// billy.Dir
+	// billy.Filesystem
 	*vfs.VFS
 }
 
@@ -94,6 +91,14 @@ func (fs billyFs) OpenFile(filename string, flag int, perm os.FileMode) (billy.F
 	return billyFile{handle}, err
 }
 
+func (fs billyFs) Remove(filename string) error {
+	return fs.VFS.Remove(filename)
+}
+
+func (fs billyFs) Rename(oldpath, newpath string) error {
+	return fs.VFS.Rename(oldpath, newpath)
+}
+
 /*
 type fileInfo struct {
 	os.FileInfo
@@ -113,7 +118,7 @@ func (fs billyFs) Stat(filename string) (fi os.FileInfo, err error) {
 
 func (fs billyFs) Join(elem ...string) string {
 	if len(elem) == 0 {
-		return "/"
+		return fs.Root()
 	}
 	return filepath.Join(elem...)
 }
@@ -168,25 +173,113 @@ func (fs billyFs) Readlink(link string) (string, error) {
 }
 
 // billy.Tempfile
-
 func (fs billyFs) TempFile(dir, prefix string) (billy.File, error) {
 	return nil, billy.ErrNotSupported
 }
 
+type FileInfos []iofs.FileInfo
+
+type VerifierPathPair struct {
+	verifier uint64
+	path     string
+}
+
+const MAX_FILE_HANDLES = 1024
+
 // server contains everything to run the server
 type server struct {
-	handler nfs.Handler
+	// handler        nfs.Handler
+	// cachingHandler nfs.CachingHandler
+	fs                  billyFs
+	pathForHandle       *lru.TwoQueueCache
+	contentsForVerifier *lru.TwoQueueCache
+}
+
+func (s *server) Mount(context.Context, net.Conn, nfs.MountRequest) (nfs.MountStatus, billy.Filesystem, []nfs.AuthFlavor) {
+	return nfs.MountStatusOk, s.fs, []nfs.AuthFlavor{nfs.AuthFlavorNull}
+}
+
+func (s *server) Change(fs billy.Filesystem) billy.Change {
+	if c, ok := fs.(billy.Change); ok {
+		return c
+	}
+	return nil
+}
+
+func (s *server) FSStat(ctx context.Context, fs billy.Filesystem, fsStat *nfs.FSStat) error {
+	total, _, free := s.fs.VFS.Statfs()
+	fsStat.TotalSize = uint64(total)
+	fsStat.FreeSize = uint64(free)
+	fsStat.AvailableSize = fsStat.FreeSize
+	fsStat.TotalFiles = 0
+	fsStat.FreeFiles = math.MaxUint64
+	fsStat.AvailableFiles = math.MaxUint64
+	return nil
+}
+
+func (s *server) ToHandle(fs billy.Filesystem, path []string) []byte {
+	// up to 64bytes
+	vHash := sha256.New()
+
+	for _, item := range path {
+		vHash.Write([]byte(item))
+	}
+	sum := vHash.Sum(nil)
+
+	var key [32]byte
+	copy(key[:], sum)
+	s.pathForHandle.Add(key, path)
+	return sum
+}
+
+func (s *server) FromHandle(fh []byte) (billy.Filesystem, []string, error) {
+	var key [32]byte
+	copy(key[:], fh)
+	if value, ok := s.pathForHandle.Get(key); ok {
+		if path, ok := value.([]string); ok {
+			return s.fs, path, nil
+		} else {
+			return s.fs, nil, errors.New("invalid value in map")
+		}
+	}
+
+	return s.fs, nil, errors.New("handle unknown or expired")
+}
+
+func (s *server) HandleLimit() int {
+	return MAX_FILE_HANDLES
+}
+
+func (s *server) VerifierFor(path string, contents []iofs.FileInfo) uint64 {
+	node, err := s.fs.VFS.Stat(path)
+	if err != nil {
+		return 0 // Will cause a retry of the read-dir plus
+	}
+
+	verifier := uint64(node.ModTime().UnixMicro())
+	key := VerifierPathPair{verifier, path}
+	s.contentsForVerifier.Add(key, contents)
+
+	return verifier
+}
+
+func (s *server) DataForVerifier(path string, verifier uint64) []iofs.FileInfo {
+	key := VerifierPathPair{verifier, path}
+	if value, ok := s.contentsForVerifier.Get(key); ok {
+		if fileInfos, ok := value.([]iofs.FileInfo); ok {
+			return fileInfos
+		}
+	}
+
+	return nil
 }
 
 func newServer(fs fs.Fs) *server {
 	vfs := vfs.New(fs, &vfsflags.Opt)
 
 	billyFs := billyFs{vfs}
-	authHandler := nfshelper.NewNullAuthHandler(billyFs)
-	cacheHelper := nfshelper.NewCachingHandler(authHandler, 65535)
-
-	s := &server{
-		handler: cacheHelper,
-	}
+	handleCache, _ := lru.New2Q(MAX_FILE_HANDLES)
+	verifierCache, _ := lru.New2Q(MAX_FILE_HANDLES)
+	s := &server{billyFs, handleCache, verifierCache}
 	return s
 }
